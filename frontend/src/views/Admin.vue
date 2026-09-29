@@ -5,12 +5,22 @@
         <h3>添加新照片</h3>
         <form @submit.prevent="handleSubmit" enctype="multipart/form-data">
           <div class="form-group">
-            <label>年份 * <span class="hint">（根据拍摄日期自动生成）</span></label>
-            <input v-model.number="form.year" type="number" readonly disabled>
+            <label>照片文件 *</label>
+            <input ref="fileInput" type="file" accept="image/*" required @change="handleFileChange">
           </div>
           <div class="form-group">
-            <label>拍摄日期 *</label>
+            <label>拍摄日期 * <span class="hint">（照片信息提取，请修改&amp;确认）</span></label>
             <DatePicker v-model="form.shoot_date" placeholder="点击选择拍摄日期" />
+            <small
+              v-if="dateDetectionMessage"
+              :class="['date-detection-status', `is-${dateDetectionState}`]"
+            >
+              {{ dateDetectionMessage }}
+            </small>
+          </div>
+          <div class="form-group">
+            <label>年份 * <span class="hint">（根据拍摄日期自动生成）</span></label>
+            <input v-model.number="form.year" type="number" readonly disabled>
           </div>
           <div class="form-group">
             <label>标题（可选）</label>
@@ -21,14 +31,10 @@
             <textarea v-model="form.description" maxlength="200" placeholder="一些描述信息"></textarea>
             <small>{{ form.description.length }}/200</small>
           </div>
-          <div class="form-group">
-            <label>照片文件 *</label>
-            <input ref="fileInput" type="file" accept="image/*" required @change="handleFileChange">
-          </div>
           <div v-if="error" class="error-message">{{ error }}</div>
           <div v-if="success" class="success-message">{{ success }}</div>
-          <button type="submit" class="btn btn-success" :disabled="submitting">
-            {{ submitting ? '上传中...' : '上传照片' }}
+          <button type="submit" class="btn btn-success" :disabled="submitting || extractingDate">
+            {{ extractingDate ? '读取照片信息...' : submitting ? '上传中...' : '上传照片' }}
           </button>
           <button type="button" class="btn btn-secondary ml-1" @click="resetForm">重置</button>
         </form>
@@ -126,6 +132,7 @@ import MultiSelectFilter from '../components/MultiSelectFilter.vue'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 import DatePicker from '../components/DatePicker.vue'
 import { useAuthStore } from '../stores/auth'
+import { extractShootDate } from '../utils/photoMetadata'
 
 export default {
   components: { MultiSelectFilter, ConfirmDialog, DatePicker },
@@ -151,6 +158,10 @@ export default {
     const submitting = ref(false)
     const error = ref('')
     const success = ref('')
+    const extractingDate = ref(false)
+    const dateDetectionMessage = ref('')
+    const dateDetectionState = ref('')
+    const autoFilledShootDate = ref('')
     const updating = reactive({})
     const editForm = reactive({})
     const modalPhoto = ref(null)
@@ -197,9 +208,47 @@ export default {
     }
 
     const fileInput = ref(null)
+    let fileSelectionId = 0
 
-    const handleFileChange = (e) => {
-      form.file = e.target.files[0]
+    const handleFileChange = async (e) => {
+      const file = e.target.files?.[0] || null
+      const selectionId = ++fileSelectionId
+
+      form.file = file
+      form.shoot_date = ''
+      form.year = new Date().getFullYear()
+      autoFilledShootDate.value = ''
+      dateDetectionMessage.value = ''
+      dateDetectionState.value = ''
+
+      if (!file) return
+
+      extractingDate.value = true
+      dateDetectionMessage.value = '正在读取照片信息...'
+      dateDetectionState.value = 'loading'
+
+      try {
+        const shootDate = await extractShootDate(file)
+        if (selectionId !== fileSelectionId) return
+
+        if (shootDate) {
+          autoFilledShootDate.value = shootDate
+          form.shoot_date = shootDate
+          dateDetectionMessage.value = `已读取拍摄日期：${shootDate}`
+          dateDetectionState.value = 'success'
+        } else {
+          dateDetectionMessage.value = '未检测到拍摄日期，请手动选择'
+          dateDetectionState.value = 'missing'
+        }
+      } catch {
+        if (selectionId !== fileSelectionId) return
+        dateDetectionMessage.value = '未检测到拍摄日期，请手动选择'
+        dateDetectionState.value = 'missing'
+      } finally {
+        if (selectionId === fileSelectionId) {
+          extractingDate.value = false
+        }
+      }
     }
 
     // 监听拍摄日期变化，自动提取年份
@@ -213,7 +262,23 @@ export default {
     }
 
     // 监听拍摄日期变化自动更新年份
-    watch(() => form.shoot_date, updateYearFromDate)
+    watch(() => form.shoot_date, (shootDate) => {
+      updateYearFromDate()
+
+      if (
+        autoFilledShootDate.value &&
+        shootDate !== autoFilledShootDate.value
+      ) {
+        autoFilledShootDate.value = ''
+        dateDetectionMessage.value = shootDate
+          ? '拍摄日期已手动修改'
+          : '请选择拍摄日期'
+        dateDetectionState.value = 'manual'
+      } else if (dateDetectionState.value === 'missing' && shootDate) {
+        dateDetectionMessage.value = '已手动选择拍摄日期'
+        dateDetectionState.value = 'manual'
+      }
+    })
 
     const loadYears = async () => {
       try {
@@ -352,11 +417,16 @@ export default {
     }
 
     const resetForm = () => {
+      fileSelectionId += 1
       form.year = new Date().getFullYear()
       form.title = ''
       form.description = ''
       form.shoot_date = ''
       form.file = null
+      extractingDate.value = false
+      dateDetectionMessage.value = ''
+      dateDetectionState.value = ''
+      autoFilledShootDate.value = ''
       if (fileInput.value) {
         fileInput.value.value = ''
       }
@@ -390,6 +460,9 @@ export default {
       groupedPhotos,
       loading,
       submitting,
+      extractingDate,
+      dateDetectionMessage,
+      dateDetectionState,
       error,
       success,
       updating,
@@ -435,6 +508,25 @@ export default {
 }
 
 small {
+  color: #666;
+}
+
+.date-detection-status {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.85rem;
+}
+
+.date-detection-status.is-success {
+  color: #287a3d;
+}
+
+.date-detection-status.is-missing {
+  color: #9a6700;
+}
+
+.date-detection-status.is-loading,
+.date-detection-status.is-manual {
   color: #666;
 }
 
