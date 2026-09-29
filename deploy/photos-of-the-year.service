@@ -1,0 +1,19 @@
+[Unit]
+Description=Photos of the Year - Flask backend (gunicorn)
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+User=nginx
+Group=nginx
+WorkingDirectory=/usr/share/nginx/html/photos-of-the-year/backend
+Environment=PATH=/usr/share/nginx/html/photos-of-the-year/backend/venv/bin
+Environment=APP_BASE_PATH=/photos-of-the-year
+Environment=SESSION_COOKIE_SECURE=true
+ExecStart=/usr/share/nginx/html/photos-of-the-year/backend/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:5002 wsgi:application
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
