@@ -237,24 +237,39 @@ photos-of-the-year/
 └── README.md
 ```
 
-## 数据库结构
+## 数据模型
 
-### user 表
-- id - 主键
-- username - 用户名 (唯一)
-- password_hash - 密码哈希
-- is_admin - 是否为管理员
+数据库名称为 `photos_of_the_year`，数据表使用 InnoDB、`utf8mb4` 字符集和 `utf8mb4_unicode_ci` 排序规则。
 
-### photo 表
-- id - 主键
-- year - 年份
-- title - 标题 (可选)
-- description - 备注 (最多200字，可选)
-- shoot_date - 拍摄日期 (必填)
-- filename - 存储的文件名
-- uploader_id - 上传者用户 id (外键指向 users.id，用户删除时置空)
-- created_at - 创建时间
-- updated_at - 更新时间
+| 表 | 说明 | 关键字段 |
+|---|---|---|
+| `user` | 登录用户与管理员账户 | `id`、`username`、`password_hash`、`is_admin` |
+| `photo` | 年度照片及其上传信息 | `id`、`year`、`shoot_date`、`filename`、`uploader_id` |
+
+关系：`user.id` 一对多关联 `photo.uploader_id`。删除用户时不会删除照片，数据库通过 `ON DELETE SET NULL` 将对应照片的 `uploader_id` 置空。
+
+### `user` 表
+
+| 字段 | MySQL 类型 | 可空 | 约束 / 默认值 | 说明 |
+|---|---|---|---|---|
+| `id` | `INT` | 否 | 主键、自增 | 用户 ID |
+| `username` | `VARCHAR(20)` | 否 | 唯一索引 | 登录用户名 |
+| `password_hash` | `VARCHAR(60)` | 否 | - | Bcrypt 密码哈希，不存储明文密码 |
+| `is_admin` | `TINYINT(1)` | 是 | ORM 新建用户时默认为 `false` | 是否为管理员 |
+
+### `photo` 表
+
+| 字段 | MySQL 类型 | 可空 | 约束 / 默认值 | 说明 |
+|---|---|---|---|---|
+| `id` | `INT` | 否 | 主键、自增 | 照片记录 ID |
+| `year` | `INT` | 否 | - | 照片所属年份 |
+| `title` | `VARCHAR(100)` | 是 | `NULL` | 标题 |
+| `description` | `VARCHAR(200)` | 是 | `NULL` | 备注 |
+| `shoot_date` | `DATE` | 否 | - | 拍摄日期 |
+| `filename` | `VARCHAR(255)` | 否 | - | uploads 目录中的文件名 |
+| `created_at` | `DATETIME` | 是 | 由 SQLAlchemy 在新增时写入 UTC 时间 | 创建时间 |
+| `updated_at` | `DATETIME` | 是 | 由 SQLAlchemy 在新增和更新时写入 UTC 时间 | 最后更新时间 |
+| `uploader_id` | `INT` | 是 | 普通索引、外键 → `user.id` | 上传者；用户删除后置为 `NULL` |
 
 ## 存储结构
 
